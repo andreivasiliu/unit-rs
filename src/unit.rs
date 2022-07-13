@@ -79,7 +79,7 @@ impl Unit {
         unsafe { &mut *self.context_data }
     }
 
-    pub fn add_request_handler(&mut self, f: impl Fn(UnitRequest) -> UnitResult<()> + 'static) {
+    pub fn set_request_handler(&mut self, f: impl Fn(UnitRequest) -> UnitResult<()> + 'static) {
         self.context_mut().request_handler = Some(Box::new(f))
     }
 
