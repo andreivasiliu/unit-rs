@@ -1,3 +1,6 @@
+// An example inspired by the official example application written in C:
+// https://github.com/nginx/unit/blob/bba97134e9/src/test/nxt_unit_app_test.c
+
 use std::io::Write;
 
 use unit_rs::{Unit, UnitRequest, UnitResult};

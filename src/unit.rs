@@ -31,6 +31,10 @@ unsafe extern "C" fn app_request_handler(req: *mut nxt_unit_request_info_t) {
     nxt_unit_request_done(req, rc);
 }
 
+/// The Unit application context.
+/// 
+/// This object wraps the `libunit` library, which talks to the Unit server over
+/// shared memory and a unix socket in order to receive data about requests.
 pub struct Unit {
     ctx: *mut nxt_unit_ctx_t,
     context_data: *mut ContextData,
@@ -41,8 +45,12 @@ struct ContextData {
 }
 
 impl Unit {
+    /// Create a new Unit context and initialize the Unit application.
+    /// 
+    /// Note: Only one Unit object may be active in a single process.
     pub fn new() -> Self {
         let context_data = Box::new(ContextData {
+            // FIXME: This might drop requests.
             request_handler: None,
         });
 
@@ -67,10 +75,17 @@ impl Unit {
         unsafe { &mut *self.context_data }
     }
 
+    /// Set a request handler for the Unit application.
+    /// 
+    /// The handler must be a function or lambda function that takes a
+    /// [`UnitRequest`](UnitRequest) object and returns a
+    /// [`UnitResult<()>`](UnitResult).
     pub fn set_request_handler(&mut self, f: impl Fn(UnitRequest) -> UnitResult<()> + 'static) {
         self.context_mut().request_handler = Some(Box::new(f))
     }
 
+    /// Enter the main event loop, handling requests until the Unit server exits
+    /// or requests a restart.
     pub fn run(&mut self) {
         unsafe {
             nxt_unit_run(self.ctx);
@@ -87,7 +102,11 @@ impl Drop for Unit {
     }
 }
 
+/// Error code returned by the Unit library.
 pub struct UnitError(pub(crate) i32);
+
+/// Result type returned from methods that have a [`UnitError`](UnitError)
+/// error.
 pub type UnitResult<T> = Result<T, UnitError>;
 
 pub(crate) trait IntoUnitResult {

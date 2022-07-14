@@ -1,6 +1,7 @@
 # unit-rs
 
-`unit-rs` is a safe wrapper around the C `libunit` library from [Nginx Unit], which allows creating Unit applications in Rust.
+`unit-rs` is a safe wrapper around the `libunit` C library from [Nginx Unit]
+which allows creating Unit applications in Rust.
 
 [Nginx Unit]: https://unit.nginx.org/
 
@@ -58,20 +59,21 @@ Once compiled, a running Nginx Unit server can be configured to use it with an
 }
 ```
 
-See the `examples` folder for a more in-depth example, and the `deploy.sh`
-script for an example `curl` command.
+See the [`examples/request_info.rs`](examples/request_info.rs) example for a
+more in-depth example, and the `deploy.sh` script for an example `curl` command.
 
 
 ## Building
 
-The library requires `libclang` (needed by `bindgen`) and `unit-dev` (which provides `libunit.a` and headers) in order to build.
+In order to build, the library requires `libclang` (needed by `bindgen`) and `unit-dev` (which provides `libunit.a` and its headers).
 
-Most distributions will have a `libclang-dev` (or similar) package, while
+Most distributions will have a `libclang-dev` package (or similar), while
 `unit-dev` must be installed from Unit's own repositories linked in their
 [installation guide](http://unit.nginx.org/installation/).
 
-Note that Nginx Unit requires the Unit server to have a matching version with a
-Unit application that uses `libunit`.
+Note that Nginx Unit requires the server and applicaton to have the same
+version; an application compiled with a `libunit` from an older or newer version
+of Nginx Unit will not work.
 
 
 ## Benchmarks
@@ -84,4 +86,4 @@ For comparison, a classic [Nginx] server serving static files reached ~200000 re
 features).
 
 [`wrk`]: https://github.com/wg/wrk
-[`Nginx`]: https://nginx.org/
+[Nginx]: https://nginx.org/

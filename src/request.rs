@@ -8,12 +8,25 @@ use crate::nxt_unit::{
 use crate::response::{add_response, UnitResponse};
 use crate::unit::UnitResult;
 
+
+/// A request received by the Nginx Unit server.
+/// 
+/// This object can be used to inspect the properties and headers of the
+/// request, and send a response back to the client.
 pub struct UnitRequest<'a> {
     pub(crate) nxt_request: *mut nxt_unit_request_info_t,
     pub(crate) _lifetime: PhantomData<&'a mut ()>,
 }
 
 impl<'a> UnitRequest<'a> {
+    /// Send an initial response to the client, and return a
+    /// [`UnitResponse`](UnitResponse) object that allows sending additional
+    /// data chunks to the client.
+    /// 
+    /// This method will consume the request object and wrap it in a response
+    /// object. The returned object will still deref to a reference of a
+    /// request object, allowing inspection of the request but no longer
+    /// allowing the initiation of a second response.
     pub fn create_response(
         self,
         headers: &[(impl AsRef<[u8]>, impl AsRef<[u8]>)],
@@ -46,6 +59,11 @@ impl<'a> UnitRequest<'a> {
         Ok(UnitResponse { request: self })
     }
 
+    /// Copy bytes from the request body into the target buffer and return the
+    /// number of bytes written.
+    /// 
+    /// If the buffer is smaller than the contents of the body, the contents
+    /// will be truncated to the size of the buffer.
     pub fn read_body(&self, target: &mut [u8]) -> usize {
         unsafe {
             let bytes = nxt_unit_request_read(
@@ -57,6 +75,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Create an interator over all header (name, value) tuples.
     pub fn fields(&self) -> impl Iterator<Item = (&str, &str)> {
         unsafe {
             let r = &(*(*self.nxt_request).request);
@@ -70,6 +89,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Return the method of the request (e.g. "GET").
     pub fn method(&self) -> &str {
         unsafe {
             let r = &(*(*self.nxt_request).request);
@@ -77,6 +97,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Return the protocol version of the request (e.g. "HTTP/1.1").
     pub fn version(&self) -> &str {
         unsafe {
             let r = &(*(*self.nxt_request).request);
@@ -84,6 +105,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Return the remote IP address of the client.
     pub fn remote(&self) -> &str {
         unsafe {
             let r = &(*(*self.nxt_request).request);
@@ -91,6 +113,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Return the local IP address of the server.
     pub fn local(&self) -> &str {
         unsafe {
             let r = &(*(*self.nxt_request).request);
@@ -98,6 +121,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Return the host name of the server.
     pub fn server_name(&self) -> &str {
         unsafe {
             let r = &(*(*self.nxt_request).request);
@@ -105,6 +129,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Return the combined URI path and query string.
     pub fn target(&self) -> &str {
         unsafe {
             let r = &(*(*self.nxt_request).request);
@@ -112,6 +137,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Return the URI path.
     pub fn path(&self) -> &str {
         unsafe {
             let r = &(*(*self.nxt_request).request);
@@ -119,6 +145,7 @@ impl<'a> UnitRequest<'a> {
         }
     }
 
+    /// Return the URI query string.
     pub fn query(&self) -> &str {
         unsafe {
             let r = &(*(*self.nxt_request).request);
