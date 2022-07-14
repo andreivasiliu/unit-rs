@@ -2,9 +2,10 @@ use libc::c_void;
 
 use crate::nxt_unit::{
     self, nxt_unit_buf_send, nxt_unit_ctx_t, nxt_unit_done, nxt_unit_init, nxt_unit_init_t,
-    nxt_unit_request_done, nxt_unit_request_info_t, nxt_unit_response_add_content,
-    nxt_unit_response_add_field, nxt_unit_response_buf_alloc, nxt_unit_response_init,
-    nxt_unit_response_send, nxt_unit_run,
+    nxt_unit_request_done, nxt_unit_request_info_t, nxt_unit_request_read,
+    nxt_unit_response_add_content, nxt_unit_response_add_field, nxt_unit_response_buf_alloc,
+    nxt_unit_response_init, nxt_unit_response_send, nxt_unit_run, nxt_unit_sptr_get,
+    nxt_unit_sptr_t,
 };
 
 pub struct UnitError(i32);
@@ -177,6 +178,93 @@ impl UnitRequest {
         // still be called.
         Ok(UnitResponse { request: self })
     }
+
+    pub fn read_body(&self, target: &mut [u8]) -> usize {
+        unsafe {
+            let bytes = nxt_unit_request_read(
+                self.nxt_request,
+                target.as_mut_ptr() as *mut c_void,
+                target.len() as u64,
+            );
+            bytes as usize
+        }
+    }
+
+    pub fn fields(&self) -> impl Iterator<Item = (&str, &str)> {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+
+            (0..r.fields_count as isize).into_iter().map(|i| {
+                let field = &*r.fields.as_ptr().offset(i);
+                let name = sptr_to_slice(&field.name, field.name_length.into());
+                let value = sptr_to_slice(&field.value, field.value_length.into());
+                (name, value)
+            })
+        }
+    }
+
+    pub fn method(&self) -> &str {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+            sptr_to_slice(&r.method, r.method_length.into())
+        }
+    }
+
+    pub fn version(&self) -> &str {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+            sptr_to_slice(&r.version, r.version_length.into())
+        }
+    }
+
+    pub fn remote(&self) -> &str {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+            sptr_to_slice(&r.remote, r.remote_length.into())
+        }
+    }
+
+    pub fn local(&self) -> &str {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+            sptr_to_slice(&r.local, r.local_length.into())
+        }
+    }
+
+    pub fn server_name(&self) -> &str {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+            sptr_to_slice(&r.server_name, r.server_name_length)
+        }
+    }
+
+    pub fn target(&self) -> &str {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+            sptr_to_slice(&r.target, r.target_length)
+        }
+    }
+
+    pub fn path(&self) -> &str {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+            sptr_to_slice(&r.path, r.path_length)
+        }
+    }
+
+    pub fn query(&self) -> &str {
+        unsafe {
+            let r = &(*(*self.nxt_request).request);
+            sptr_to_slice(&r.query, r.query_length)
+        }
+    }
+}
+
+unsafe fn sptr_to_slice(sptr: &nxt_unit_sptr_t, length: u32) -> &str {
+    let ptr = nxt_unit_sptr_get(sptr) as *mut u8;
+    let slice = std::slice::from_raw_parts(ptr, length as usize);
+    // FIXME: temporary, Nginx Unit doesn't guarantee this
+    std::str::from_utf8_unchecked(slice)
 }
 
 impl std::ops::Deref for UnitResponse {
@@ -191,11 +279,9 @@ impl UnitResponse {
     pub fn send_buffer<T>(
         &mut self,
         size: usize,
-        f: impl Fn(&mut &mut [u8]) -> UnitResult<T>,
+        f: impl Fn(&UnitRequest, &mut &mut [u8]) -> UnitResult<T>,
     ) -> UnitResult<T> {
         let req = self.request.nxt_request;
-
-        std::fs::write("/tmp/result.txt", format!("Sending...")).unwrap();
 
         assert!(size <= u32::MAX as usize);
 
@@ -209,15 +295,9 @@ impl UnitResponse {
             libc::memset((*buf).start as *mut c_void, 0, size);
 
             let mut buf_contents = std::slice::from_raw_parts_mut((*buf).start as *mut u8, size);
-            let result = f(&mut buf_contents)?;
+            let result = f(&self.request, &mut buf_contents)?;
 
             // nxt_unit_req_log(req, NXT_UNIT_LOG_WARN as i32, b"Senging some extra %d".as_ptr() as *const i8, size - buf_contents.len());
-
-            std::fs::write(
-                "/tmp/result.txt",
-                format!("Size: {}", size - buf_contents.len()),
-            )
-            .unwrap();
 
             (*buf).free = (*buf).free.add(size - buf_contents.len());
 

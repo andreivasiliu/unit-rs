@@ -23,7 +23,8 @@ curl -X PUT --data @- --unix-socket $socket http://localhost/config << EOF
       "$app_name": {
           "type": "external",
           "working_directory": "$cwd",
-          "executable": "$cwd/target/${target}/nginx_libunit_rust"
+          "executable": "$cwd/target/${target}/nginx_libunit_rust",
+          "processes": 4,
       }
   }
 }
