@@ -1,12 +1,12 @@
 all: debug
 
 debug:
-	cargo build
+	cargo build --example request_info
 	sudo ./deploy.sh
 	curl -v localhost:8080
 
 release:
-	cargo build --release
+	cargo build --release --example request_info
 	sudo ./deploy.sh release
 	curl -v localhost:8080
 

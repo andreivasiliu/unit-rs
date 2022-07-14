@@ -1,5 +1,5 @@
 [package]
-name = "nginx_libunit_rust"
+name = "unit-rs"
 version = "0.1.0"
 edition = "2021"
 

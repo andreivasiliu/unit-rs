@@ -1,9 +1,6 @@
 use std::io::Write;
 
-use unit::{Unit, UnitRequest, UnitResult};
-
-mod nxt_unit;
-mod unit;
+use unit_rs::{Unit, UnitRequest, UnitResult};
 
 fn main() {
     let mut unit = Unit::new();
