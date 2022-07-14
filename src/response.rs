@@ -9,19 +9,19 @@ use crate::nxt_unit::{
 use crate::request::UnitRequest;
 use crate::unit::{IntoUnitResult, UnitError, UnitResult};
 
-pub struct UnitResponse {
-    pub(crate) request: UnitRequest,
+pub struct UnitResponse<'a> {
+    pub(crate) request: UnitRequest<'a>,
 }
 
-impl std::ops::Deref for UnitResponse {
-    type Target = UnitRequest;
+impl<'a> std::ops::Deref for UnitResponse<'a> {
+    type Target = UnitRequest<'a>;
 
     fn deref(&self) -> &Self::Target {
         &self.request
     }
 }
 
-impl UnitResponse {
+impl UnitResponse<'_> {
     pub fn send_buffer<T>(
         &mut self,
         size: usize,

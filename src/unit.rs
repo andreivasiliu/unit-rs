@@ -18,7 +18,7 @@ unsafe extern "C" fn app_request_handler(req: *mut nxt_unit_request_info_t) {
     }
 
     let rc = if let Some(request_handler) = &context_data.request_handler {
-        let unit_request = UnitRequest { nxt_request: req };
+        let unit_request = UnitRequest { nxt_request: &mut *req, _lifetime: Default::default() };
         // FIXME: Wrap in catch_unwind
         match request_handler(unit_request) {
             Ok(()) => nxt_unit::NXT_UNIT_OK as i32,

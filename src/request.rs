@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use libc::c_void;
 
 use crate::nxt_unit::{
@@ -6,16 +8,17 @@ use crate::nxt_unit::{
 use crate::response::{add_response, UnitResponse};
 use crate::unit::UnitResult;
 
-pub struct UnitRequest {
+pub struct UnitRequest<'a> {
     pub(crate) nxt_request: *mut nxt_unit_request_info_t,
+    pub(crate) _lifetime: PhantomData<&'a mut ()>,
 }
 
-impl UnitRequest {
-    pub fn create_response<'a>(
+impl<'a> UnitRequest<'a> {
+    pub fn create_response(
         self,
         headers: &[(impl AsRef<[u8]>, impl AsRef<[u8]>)],
         body: impl AsRef<[u8]>,
-    ) -> UnitResult<UnitResponse> {
+    ) -> UnitResult<UnitResponse<'a>> {
         let req = self.nxt_request;
 
         let headers_size: usize = headers

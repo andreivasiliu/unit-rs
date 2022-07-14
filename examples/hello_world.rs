@@ -1,17 +1,15 @@
-use unit_rs::{Unit, UnitRequest, UnitResult};
+use unit_rs::Unit;
 
 fn main() {
     let mut unit = Unit::new();
 
-    unit.set_request_handler(request_handler);
+    unit.set_request_handler(|req| {
+        let headers = &[("Content-Type", "text/plain")];
+        let body = "Hello world!\n";
+        req.create_response(headers, body)?;
+    
+        Ok(())
+    });
 
     unit.run();
-}
-
-fn request_handler(req: UnitRequest) -> UnitResult<()> {
-    // Create and send a response.
-    let headers = &[("Content-Type", "text/plain")];
-    req.create_response(headers, "Hello world!\n")?;
-
-    Ok(())
 }
