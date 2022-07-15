@@ -12,6 +12,15 @@ fn main() {
         println!("cargo:rustc-link-lib=unit");
     }
 
+    // Use vendored headers for libunit for docs.rs's builder, in order to
+    // bypass the unit-dev dependency. This is only good enough for `cargo doc`
+    // and cannot support a full build.
+    let clang_args = if std::env::var("DOCS_RS").is_ok() {
+        &["-I./.docs.rs/libunit-1.27.0"][..]
+    } else {
+        &[]
+    };
+
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=wrapper.h");
 
@@ -22,6 +31,8 @@ fn main() {
         // The input header we would like to generate
         // bindings for.
         .header("wrapper.h")
+        // Use the vendored headers for docs.rs builds
+        .clang_args(clang_args)
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))

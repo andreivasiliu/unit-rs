@@ -1,0 +1,2 @@
+#define NXT_VERSION "1.27.0"
+#define NXT_VERNUM  12700
