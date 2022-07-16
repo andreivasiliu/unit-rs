@@ -6,7 +6,7 @@ use std::io::Write;
 use unit_rs::{Unit, UnitRequest, UnitResult};
 
 fn main() {
-    let mut unit = Unit::new();
+    let mut unit = Unit::new().unwrap();
 
     unit.set_request_handler(request_handler);
 

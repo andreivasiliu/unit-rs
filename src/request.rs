@@ -2,15 +2,14 @@ use std::marker::PhantomData;
 
 use libc::c_void;
 
+use crate::error::UnitResult;
 use crate::nxt_unit::{
     nxt_unit_request_info_t, nxt_unit_request_read, nxt_unit_sptr_get, nxt_unit_sptr_t,
 };
 use crate::response::{add_response, UnitResponse};
-use crate::unit::UnitResult;
-
 
 /// A request received by the Nginx Unit server.
-/// 
+///
 /// This object can be used to inspect the properties and headers of the
 /// request, and send a response back to the client.
 pub struct UnitRequest<'a> {
@@ -22,7 +21,7 @@ impl<'a> UnitRequest<'a> {
     /// Send an initial response to the client, and return a
     /// [`UnitResponse`](UnitResponse) object that allows sending additional
     /// data chunks to the client.
-    /// 
+    ///
     /// This method will consume the request object and wrap it in a response
     /// object. The returned object will still deref to a reference of a
     /// request object, allowing inspection of the request but no longer
@@ -61,7 +60,7 @@ impl<'a> UnitRequest<'a> {
 
     /// Copy bytes from the request body into the target buffer and return the
     /// number of bytes written.
-    /// 
+    ///
     /// If the buffer is smaller than the contents of the body, the contents
     /// will be truncated to the size of the buffer.
     pub fn read_body(&self, target: &mut [u8]) -> usize {

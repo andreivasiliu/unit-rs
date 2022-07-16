@@ -6,8 +6,8 @@ use crate::nxt_unit::{
     nxt_unit_response_send,
 };
 
+use crate::error::{IntoUnitResult, UnitError, UnitResult};
 use crate::request::UnitRequest;
-use crate::unit::{IntoUnitResult, UnitError, UnitResult};
 
 /// An object used to send follow-up response bytes to a request, obtained by
 /// calling a [`UnitRequest`](UnitRequest)'s
@@ -28,10 +28,10 @@ impl<'a> std::ops::Deref for UnitResponse<'a> {
 impl UnitResponse<'_> {
     /// Send another chunk of bytes for this request's response. The bytes will
     /// be immediately sent to the client.
-    /// 
+    ///
     /// This method allocates a buffer in Unit's shared memory region, and calls
     /// a user function to fill it.
-    /// 
+    ///
     /// The user function receives a `&mut &mut [u8]` slice, and the `write!`
     /// macro can be used to advance the start position of the slice. Only the
     /// bytes between the original start and the new start positions will be
@@ -39,7 +39,7 @@ impl UnitResponse<'_> {
     pub fn send_buffer<T>(
         &mut self,
         size: usize,
-        f: impl Fn(&UnitRequest, &mut &mut [u8]) -> UnitResult<T>,
+        f: impl FnOnce(&UnitRequest, &mut &mut [u8]) -> UnitResult<T>,
     ) -> UnitResult<T> {
         let req = self.request.nxt_request;
 
