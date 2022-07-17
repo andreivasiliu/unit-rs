@@ -1,0 +1,15 @@
+{
+    "listeners": {
+        "*:8080": {
+            "pass": "applications/rustapp"
+        }
+    },
+    "applications": {
+        "rustapp": {
+            "type": "external",
+            "working_directory": "/",
+            "executable": "/unit-rs-app",
+            "processes": 4
+        }
+    }
+}
