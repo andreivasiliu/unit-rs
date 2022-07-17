@@ -22,13 +22,13 @@ unsafe extern "C" fn app_request_handler(req: *mut nxt_unit_request_info_t) {
         return;
     }
 
-    let rc = if let Some(request_handler) = &mut context_data.request_handler {
+    let rc = if let Some(service) = &mut context_data.request_handler {
         let unit_request = UnitRequest {
             nxt_request: &mut *req,
             _lifetime: Default::default(),
         };
         // FIXME: Wrap in catch_unwind
-        match request_handler(unit_request) {
+        match service.handle_request(unit_request) {
             Ok(()) => nxt_unit::NXT_UNIT_OK as i32,
             Err(UnitError(rc)) => rc,
         }
@@ -40,7 +40,7 @@ unsafe extern "C" fn app_request_handler(req: *mut nxt_unit_request_info_t) {
 }
 
 struct ContextData {
-    request_handler: Option<Box<dyn FnMut(UnitRequest) -> UnitResult<()>>>,
+    request_handler: Option<Box<dyn UnitService>>,
     is_main_context: bool,
     unit_is_ready: bool,
 }
@@ -235,7 +235,7 @@ impl Unit {
     /// The handler must be a function or lambda function that takes a
     /// [`UnitRequest`](UnitRequest) object and returns a
     /// [`UnitResult<()>`](UnitResult).
-    pub fn set_request_handler(&mut self, f: impl FnMut(UnitRequest) -> UnitResult<()> + 'static) {
+    pub fn set_request_handler(&mut self, f: impl UnitService + 'static) {
         if self.noop_context {
             return;
         }
@@ -314,5 +314,18 @@ impl Drop for Unit {
                 nxt_unit_done(self.ctx);
             }
         }
+    }
+}
+
+pub trait UnitService {
+    fn handle_request(&mut self, req: UnitRequest) -> UnitResult<()>;
+}
+
+impl<F> UnitService for F
+where
+    F: FnMut(UnitRequest) -> UnitResult<()> + 'static,
+{
+    fn handle_request(&mut self, req: UnitRequest) -> UnitResult<()> {
+        self(req)
     }
 }

@@ -28,13 +28,19 @@
 //! }
 //! ```
 
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 mod error;
+#[cfg(feature = "http")]
+mod http_service;
 mod nxt_unit;
 mod request;
 mod response;
 mod unit;
 
 pub use error::{UnitError, UnitInitError, UnitResult};
+#[cfg(feature = "http")]
+pub use http_service::{HttpMiddleware, HttpService};
 pub use request::UnitRequest;
 pub use response::UnitResponse;
 pub use unit::Unit;

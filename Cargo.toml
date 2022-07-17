@@ -5,13 +5,26 @@ authors = ["Andrei Vasiliu <whyte.vuhuni@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/andreivasiliu/unit-rs"
 readme = "README.md"
-version = "0.2.0-alpha"
+version = "0.2.0-alpha1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = []
+http = ["dep:http"]
+
 [dependencies]
 libc = "0.2.126"
+http = { version = "0.2.8", optional = true }
 
 [build-dependencies]
 bindgen = "0.60.1"
+
+[[example]]
+name = "http_middleware"
+required-features = ["http"]
