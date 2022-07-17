@@ -1,3 +1,8 @@
+[![Crates.io](https://img.shields.io/crates/v/unit-rs)](https://crates.io/crates/unit-rs)
+[![docs.rs](https://img.shields.io/docsrs/unit-rs)](https://docs.rs/unit-rs)
+[![Crates.io](https://img.shields.io/crates/l/unit-rs)](./LICENSE)
+
+
 # unit-rs
 
 `unit-rs` is a safe wrapper around the `libunit` C library from [Nginx Unit]
