@@ -58,7 +58,7 @@ Once compiled, a running Nginx Unit server can be configured to use it with an
           "type": "external",
           "working_directory": "/path/to/package",
           "executable": "/path/to/package/hello_world",
-          "processes": 4,
+          "processes": 4
       }
   }
 }
@@ -70,7 +70,8 @@ more in-depth example, and the `deploy.sh` script for an example `curl` command.
 
 ## Building
 
-In order to build, the library requires `libclang` (needed by `bindgen`) and `unit-dev` (which provides `libunit.a` and its headers).
+In order to build, the library requires `libclang` (needed by `bindgen`) and
+`unit-dev` (which provides `libunit.a` and its headers).
 
 Most distributions will have a `libclang-dev` package (or similar), while
 `unit-dev` must be installed from Unit's own repositories linked in their
@@ -81,13 +82,50 @@ version; an application compiled with a `libunit` from an older or newer version
 of Nginx Unit will not work.
 
 
+## Safety
+
+`unit-rs` attempts to be a safe wrapper by making all invalid uses of the 
+`libunit` APIs impossible, and preventing all undefined behavior.
+
+Some of this is achieved at the expense of some runtime performance, using
+Rust's mandatory bounds-checking for all arrays.
+
+For example, applications using `unit-rs` will experience runtime panics when:
+
+* Reading more bytes from a request than available
+* Writing more bytes to a response than allocated
+
+However, Rust's type system also allows for many compile-time guarantees. When
+using `unit-rs`, the following become either compile-time errors or impossible
+to express:
+
+* Moving Unit contexts or sharing request data between threads
+* Accessing more fields/headers than available
+* Storing pointers to request data in variables that outlive the request handler
+  function
+* Storing pointers to or into a shared memory buffer in variables that outlive
+  the buffer
+* Creating two responses to the same request
+* Forgetting to finalize/close the request
+* Creating/sending a shared memory buffer before previous buffers were sent or
+  dealloated
+* Sending a shared memory buffer that was already sent
+* Sending uninitialized shared memory regions
+* Forgetting to drop a shared memory buffer
+
+Through the use of a global mutex, `unit-rs` will also ensure that any
+additional multi-threaded Unit contexts will be spawned from a primary context,
+and that the primary context outlives all secondary contexts.
+
+
 ## Benchmarks
 
 A test on a Ryzen 7 CPU with the [`wrk`] benchmarking tool shows Unit reaching
 ~250000 requests per second, mostly maxing out on the `Unit` server and the
 `wrk` tool itself.
 
-For comparison, a classic [Nginx] server serving static files reached ~200000 requests per second (although note that the classic Nginx has significantly more
+For comparison, a classic [Nginx] server serving static files reached ~200000
+requests per second (although note that the classic Nginx has significantly more
 features).
 
 [`wrk`]: https://github.com/wg/wrk
