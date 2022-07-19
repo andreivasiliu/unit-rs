@@ -21,29 +21,27 @@ fn request_handler(req: UnitRequest) -> UnitResult<()> {
     // Nginx Unit uses "Transfer-Encoding: chunked" by default, and can send
     // additional chunks after the initial response was already sent to the
     // client.
-    res.send_buffer(4096, |req, buf| {
-        write!(buf, "Request data:\n").unwrap();
-        write!(buf, "  Method: {}\n", req.method()).unwrap();
-        write!(buf, "  Protocol: {}\n", req.version()).unwrap();
-        write!(buf, "  Remote addr: {}\n", req.remote()).unwrap();
-        write!(buf, "  Local addr: {}\n", req.local()).unwrap();
-        write!(buf, "  Server name: {}\n", req.server_name()).unwrap();
-        write!(buf, "  Target: {}\n", req.target()).unwrap();
-        write!(buf, "  Path: {}\n", req.path()).unwrap();
-        write!(buf, "  Query: {}\n", req.query()).unwrap();
-        write!(buf, "  Fields:\n").unwrap();
+    res.send_buffer_with_writer(4096, |req, w| {
+        write!(w, "Request data:\n")?;
+        write!(w, "  Method: {}\n", req.method())?;
+        write!(w, "  Protocol: {}\n", req.version())?;
+        write!(w, "  Remote addr: {}\n", req.remote())?;
+        write!(w, "  Local addr: {}\n", req.local())?;
+        write!(w, "  Server name: {}\n", req.server_name())?;
+        write!(w, "  Target: {}\n", req.target())?;
+        write!(w, "  Path: {}\n", req.path())?;
+        write!(w, "  Query: {}\n", req.query())?;
+        write!(w, "  Fields:\n")?;
         for (name, value) in req.fields() {
-            write!(buf, "    {}: {}\n", name, value).unwrap();
+            write!(w, "    {}: {}\n", name, value).unwrap();
         }
-        write!(buf, "  Body:\n").unwrap();
-        let bytes = req.read_body(buf);
+        write!(w, "  Body:\n    ").unwrap();
 
-        // Advance write pointer with the number of bytes read
-        let inner_buf: &mut [u8] = std::mem::take(buf);
-        *buf = &mut inner_buf[bytes..];
-        write!(buf, "\n  Body bytes: {}\n", bytes).unwrap();
+        w.copy_from_reader(req.body())?;
+
         Ok(())
-    })?;
+    })
+    .unwrap(); // FIXME
 
     Ok(())
 }

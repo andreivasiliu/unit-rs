@@ -41,6 +41,6 @@ mod unit;
 pub use error::{UnitError, UnitInitError, UnitResult};
 #[cfg(feature = "http")]
 pub use http_service::{HttpMiddleware, HttpService};
-pub use request::UnitRequest;
-pub use response::UnitResponse;
+pub use request::{BodyReader, UnitRequest};
+pub use response::{BodyWriter, UnitResponse};
 pub use unit::Unit;

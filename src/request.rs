@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::marker::PhantomData;
 
 use libc::c_void;
@@ -71,6 +72,15 @@ impl<'a> UnitRequest<'a> {
                 target.len() as u64,
             );
             bytes as usize
+        }
+    }
+
+    /// Create a reader that implements that [`Read`](std::io::Read) trait,
+    /// which will read from the request body in a blocking manner.
+    pub fn body(&self) -> BodyReader<'a> {
+        BodyReader {
+            _lifetime: Default::default(),
+            nxt_request: self.nxt_request,
         }
     }
 
@@ -157,5 +167,37 @@ unsafe fn sptr_to_slice(sptr: &nxt_unit_sptr_t, length: u32) -> &str {
     let ptr = nxt_unit_sptr_get(sptr) as *mut u8;
     let slice = std::slice::from_raw_parts(ptr, length as usize);
     // FIXME: temporary, Nginx Unit doesn't guarantee this
-    std::str::from_utf8_unchecked(slice)
+    std::str::from_utf8(slice).unwrap()
+}
+
+pub struct BodyReader<'a> {
+    _lifetime: std::marker::PhantomData<&'a ()>,
+    nxt_request: *mut nxt_unit_request_info_t,
+}
+
+impl BodyReader<'_> {
+    pub fn read_to_vec(&mut self) -> std::io::Result<Vec<u8>> {
+        let mut vec = Vec::new();
+        self.read_to_end(&mut vec)?;
+        Ok(vec)
+    }
+}
+
+impl std::panic::UnwindSafe for BodyReader<'_> {}
+
+impl std::io::Read for BodyReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // SAFETY: The target is user-provided and initialized.
+        // The BodyReader and UnitRequest are not Sync nor Send, so this is
+        // thread-safe.
+        // This function does not seem to have any sort of error reporting.
+        let bytes = unsafe {
+            nxt_unit_request_read(
+                self.nxt_request,
+                buf.as_mut_ptr() as *mut c_void,
+                buf.len() as u64,
+            )
+        };
+        Ok(bytes as usize)
+    }
 }
