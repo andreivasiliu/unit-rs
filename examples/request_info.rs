@@ -18,7 +18,7 @@ fn request_handler(req: UnitRequest) -> UnitResult<()> {
     let headers = &[("Content-Type", "text/plain")];
     let mut res = req.create_response(headers, "Hello world!\n")?;
 
-    // Nginx Unit uses "Transfer-Encoding: chunked" by default, and can send
+    // NGINX Unit uses "Transfer-Encoding: chunked" by default, and can send
     // additional chunks after the initial response was already sent to the
     // client.
     res.send_buffer_with_writer(4096, |req, w| {

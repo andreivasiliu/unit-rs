@@ -1,9 +1,9 @@
 //! # unit-rs
 //!
-//! `unit-rs` is a safe wrapper around the C `libunit` library from [Nginx Unit],
+//! `unit-rs` is a safe wrapper around the C `libunit` library from [NGINX Unit],
 //! which allows creating Unit applications in Rust.
 //!
-//! [Nginx Unit]: https://unit.nginx.org/
+//! [NGINX Unit]: https://unit.nginx.org/
 //!
 //! Currently very few features are supported, but enough are available to
 //! inspect all aspects of a request and create a response.

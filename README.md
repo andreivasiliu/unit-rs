@@ -5,10 +5,10 @@
 
 # unit-rs
 
-`unit-rs` is a safe wrapper around the `libunit` C library from [Nginx Unit]
+`unit-rs` is a safe wrapper around the `libunit` C library from [NGINX Unit]
 which allows creating Unit applications in Rust.
 
-[Nginx Unit]: https://unit.nginx.org/
+[NGINX Unit]: https://unit.nginx.org/
 
 Currently very few features are supported, but enough are available to inspect
 all aspects of a request and create a response.
@@ -43,7 +43,7 @@ fn main() {
 }
 ```
 
-Once compiled, a running Nginx Unit server can be configured to use it with an
+Once compiled, a running NGINX Unit server can be configured to use it with an
 `external` application pointing to the binary's path:
 
 ```json
@@ -77,9 +77,9 @@ Most distributions will have a `libclang-dev` package (or similar), while
 `unit-dev` must be installed from Unit's own repositories linked in their
 [installation guide](http://unit.nginx.org/installation/).
 
-Note that Nginx Unit requires the server and applicaton to have the same
+Note that NGINX Unit requires the server and applicaton to have the same
 version; an application compiled with a `libunit` from an older or newer version
-of Nginx Unit will not work.
+of NGINX Unit will not work.
 
 
 ## Safety

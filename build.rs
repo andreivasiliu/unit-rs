@@ -4,7 +4,7 @@ use std::path::PathBuf;
 fn main() {
     let profile = std::env::var("PROFILE").unwrap();
 
-    // Tell cargo to tell rustc to link the system Nginx unit
+    // Tell cargo to tell rustc to link the system NGINX unit
     // shared library.
     if profile == "debug" {
         println!("cargo:rustc-link-lib=unit-debug");

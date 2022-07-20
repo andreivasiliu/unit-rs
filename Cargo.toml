@@ -1,6 +1,6 @@
 [package]
 name = "unit-rs"
-description = "A safe wrapper around Nginx Unit's libunit."
+description = "A safe wrapper around NGINX Unit's libunit."
 authors = ["Andrei Vasiliu <whyte.vuhuni@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/andreivasiliu/unit-rs"

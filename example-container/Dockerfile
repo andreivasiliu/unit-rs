@@ -27,11 +27,11 @@ RUN cargo install --path .
 RUN which unit-rs-app
 
 
-# A container that runs the application with Nginx Unit
+# A container that runs the application with NGINX Unit
 FROM docker.io/nginx/unit:1.27.0-minimal
 
 # Copy the binary from the builder image above; libunit.a is statically linked
-# into it, and the resulting binary works with any Nginx Unit server with a
+# into it, and the resulting binary works with any NGINX Unit server with a
 # matching version number (including images for other languages).
 COPY --from=builder /usr/local/cargo/bin/unit-rs-app /
 

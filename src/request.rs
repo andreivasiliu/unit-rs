@@ -9,7 +9,7 @@ use crate::nxt_unit::{
 };
 use crate::response::{add_response, UnitResponse};
 
-/// A request received by the Nginx Unit server.
+/// A request received by the NGINX Unit server.
 ///
 /// This object can be used to inspect the properties and headers of the
 /// request, and send a response back to the client.
@@ -166,7 +166,7 @@ impl<'a> UnitRequest<'a> {
 unsafe fn sptr_to_slice(sptr: &nxt_unit_sptr_t, length: u32) -> &str {
     let ptr = nxt_unit_sptr_get(sptr) as *mut u8;
     let slice = std::slice::from_raw_parts(ptr, length as usize);
-    // FIXME: temporary, Nginx Unit doesn't guarantee this
+    // FIXME: temporary, NGINX Unit doesn't guarantee this
     std::str::from_utf8(slice).unwrap()
 }
 
