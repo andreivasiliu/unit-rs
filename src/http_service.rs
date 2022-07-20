@@ -1,4 +1,4 @@
-use std::panic::{AssertUnwindSafe, UnwindSafe};
+use std::panic::{AssertUnwindSafe, RefUnwindSafe, UnwindSafe};
 
 use http::{uri::PathAndQuery, Request, Response, Uri};
 
@@ -33,7 +33,7 @@ use crate::{unit::UnitService, BodyReader, UnitRequest, UnitResult};
 /// ```
 #[cfg_attr(docsrs, doc(cfg(feature = "http")))]
 pub trait HttpService: UnwindSafe {
-    fn handle_request(&mut self, _req: Request<BodyReader>) -> UnitResult<Response<Vec<u8>>>;
+    fn handle_request(&self, _req: Request<BodyReader>) -> UnitResult<Response<Vec<u8>>>;
 }
 
 /// Adapter middleware to use types from the [`http`] crate.
@@ -50,7 +50,7 @@ impl<H: HttpService> HttpMiddleware<H> {
     }
 }
 
-impl<H: HttpService> UnitService for HttpMiddleware<H> {
+impl<H: HttpService + RefUnwindSafe> UnitService for HttpMiddleware<H> {
     // TODO: Handle errors, this is currently just a prototype
     fn handle_request(&mut self, req: UnitRequest) -> UnitResult<()> {
         // FIXME: Fix unwrap
@@ -78,15 +78,15 @@ impl<H: HttpService> UnitService for HttpMiddleware<H> {
             .unwrap();
 
         // SAFETY:
-        // Using AssertUnwindSafe here because the only unsafe object inside
-        // this closure is `http::Request`, but it is often thrown away in case
-        // of a panic.
-        // The HttpHandler trait has the UnwindSafe requirement, and is only
-        // implemented for Fn() instead of FnMut() (which would not be
-        // UnwindSafe).
-        let handler = AssertUnwindSafe(|| self.0.handle_request(http_request));
+        // The only !UnwindSafe part of http::Request is its Extensions, and
+        // this library does not add any extensions to it.
+        let http_request = AssertUnwindSafe(http_request);
+        let handler = &self.0;
 
-        let http_response = std::panic::catch_unwind(handler);
+        let http_response = std::panic::catch_unwind(move || {
+            let http_request = http_request;
+            handler.handle_request(http_request.0)
+        });
 
         match http_response {
             Ok(Ok(http_response)) => {
@@ -117,7 +117,7 @@ where
     F: Fn(Request<BodyReader>) -> UnitResult<Response<Vec<u8>>>,
     F: UnwindSafe + 'static,
 {
-    fn handle_request(&mut self, req: Request<BodyReader>) -> UnitResult<Response<Vec<u8>>> {
+    fn handle_request(&self, req: Request<BodyReader>) -> UnitResult<Response<Vec<u8>>> {
         self(req)
     }
 }
