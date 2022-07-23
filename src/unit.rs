@@ -1,3 +1,5 @@
+use std::any::Any;
+use std::panic::AssertUnwindSafe;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard, Once, Weak};
 
@@ -28,10 +30,20 @@ unsafe extern "C" fn request_handler(req: *mut nxt_unit_request_info_t) {
             nxt_request: &mut *req,
             _lifetime: Default::default(),
         };
-        // FIXME: Wrap in catch_unwind
-        match service.handle_request(unit_request) {
-            Ok(()) => nxt_unit::NXT_UNIT_OK as i32,
-            Err(UnitError(rc)) => rc,
+
+        // This assertion is safe because the panic payload is not examined, and
+        // the panic will just be forwarded through Unit's C FFI and resumed.
+        let handler = AssertUnwindSafe(|| service.handle_request(unit_request));
+
+        match std::panic::catch_unwind(handler) {
+            Ok(Ok(())) => nxt_unit::NXT_UNIT_OK as i32,
+            Ok(Err(UnitError(rc))) => rc,
+            Err(panic_payload) => {
+                // FIXME: Find a way to stop the loop
+                std::panic::resume_unwind(panic_payload)
+                // context_data.panic_payload = Some(panic_payload);
+                // nxt_unit::NXT_UNIT_ERROR as i32
+            }
         }
     } else {
         nxt_unit::NXT_UNIT_OK as i32
@@ -43,6 +55,7 @@ unsafe extern "C" fn request_handler(req: *mut nxt_unit_request_info_t) {
 struct ContextData {
     request_handler: Option<Box<dyn UnitService>>,
     unit_is_ready: bool,
+    panic_payload: Option<Box<dyn Any + Send>>,
 }
 
 unsafe extern "C" fn ready_handler(ctx: *mut nxt_unit_ctx_t) -> i32 {
@@ -120,6 +133,7 @@ impl Unit {
             let context_data = Box::new(ContextData {
                 request_handler: None,
                 unit_is_ready: false,
+                panic_payload: None,
             });
 
             let context_user_data = Box::into_raw(context_data);
@@ -153,6 +167,7 @@ impl Unit {
             let context_data = Box::new(ContextData {
                 request_handler: None,
                 unit_is_ready: false,
+                panic_payload: None,
             });
 
             let context_user_data = Box::into_raw(context_data);
@@ -213,7 +228,7 @@ impl Unit {
         }
     }
 
-    fn context_mut(&mut self) -> &mut ContextData {
+    fn context_data_mut(&mut self) -> &mut ContextData {
         // SAFETY: The only other thing that can access this is `.run()`, which
         // requires `&mut self` and therefore guaranteed not to be active.
         unsafe { &mut *self.context_data }
@@ -228,7 +243,7 @@ impl Unit {
         if self.context_wrapper.is_none() {
             return;
         }
-        self.context_mut().request_handler = Some(Box::new(f))
+        self.context_data_mut().request_handler = Some(Box::new(f))
     }
 
     /// Enter the main event loop, handling requests until the Unit server exits
@@ -240,6 +255,11 @@ impl Unit {
             // FFI-safe.
             unsafe {
                 nxt_unit_run(context_wrapper.context.as_ptr());
+            }
+
+            // Resume any panics forwarded through the C FFI.
+            if let Some(panic_payload) = self.context_data_mut().panic_payload.take() {
+                std::panic::resume_unwind(panic_payload);
             }
         }
     }
