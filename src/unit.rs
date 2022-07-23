@@ -1,4 +1,5 @@
-use std::sync::{Condvar, Mutex, MutexGuard, Once};
+use std::ptr::NonNull;
+use std::sync::{Arc, Mutex, MutexGuard, Once, Weak};
 
 use libc::c_void;
 
@@ -9,7 +10,7 @@ use crate::nxt_unit::{
 };
 use crate::request::UnitRequest;
 
-unsafe extern "C" fn app_request_handler(req: *mut nxt_unit_request_info_t) {
+unsafe extern "C" fn request_handler(req: *mut nxt_unit_request_info_t) {
     // SAFETY: The context data is passed as Unit context-specific user data,
     // and individual Unit contexts correspond to individual threads.
     let context_data = (*(*req).ctx).data as *mut ContextData;
@@ -41,7 +42,6 @@ unsafe extern "C" fn app_request_handler(req: *mut nxt_unit_request_info_t) {
 
 struct ContextData {
     request_handler: Option<Box<dyn UnitService>>,
-    is_main_context: bool,
     unit_is_ready: bool,
 }
 
@@ -59,10 +59,16 @@ unsafe extern "C" fn ready_handler(ctx: *mut nxt_unit_ctx_t) -> i32 {
 static mut MAIN_CONTEXT: Option<Mutex<MainContext>> = None;
 static MAIN_CONTEXT_INIT: Once = Once::new();
 
+enum MainContext {
+    Uninitialized,
+    InitFailed(UnitInitError),
+    Initialized(Weak<UnitContextWrapper>),
+}
+
 fn main_context() -> MutexGuard<'static, MainContext> {
     unsafe {
         MAIN_CONTEXT_INIT.call_once(|| {
-            MAIN_CONTEXT = Some(Mutex::new(MainContext::new()));
+            MAIN_CONTEXT = Some(Mutex::new(MainContext::Uninitialized));
         });
         MAIN_CONTEXT
             .as_ref()
@@ -72,44 +78,13 @@ fn main_context() -> MutexGuard<'static, MainContext> {
     }
 }
 
-static mut MAIN_CONTEXT_NOTIFIER: Option<Condvar> = None;
-static MAIN_CONTEXT_NOTIFIER_INIT: Once = Once::new();
-
-fn main_context_notifier() -> &'static Condvar {
-    unsafe {
-        MAIN_CONTEXT_NOTIFIER_INIT.call_once(|| {
-            MAIN_CONTEXT_NOTIFIER = Some(Condvar::new());
-        });
-        MAIN_CONTEXT_NOTIFIER.as_ref().expect("Initialized above")
-    }
-}
-
-struct MainContext {
-    main_unit_context: *mut nxt_unit_ctx_t,
-    init_error: Option<UnitInitError>,
-    secondary_context_count: usize,
-    finalized: bool,
-}
-
-impl MainContext {
-    fn new() -> Self {
-        MainContext {
-            main_unit_context: std::ptr::null_mut(),
-            init_error: None,
-            secondary_context_count: 0,
-            finalized: false,
-        }
-    }
-}
-
 /// The Unit application context.
 ///
 /// This object wraps the `libunit` library, which talks to the Unit server over
 /// shared memory and a unix socket in order to receive data about requests.
 pub struct Unit {
-    ctx: *mut nxt_unit_ctx_t,
+    context_wrapper: Option<Arc<UnitContextWrapper>>,
     context_data: *mut ContextData,
-    noop_context: bool,
 }
 
 impl Unit {
@@ -119,25 +94,64 @@ impl Unit {
     pub fn new() -> Result<Self, UnitInitError> {
         let mut main_context = main_context();
 
-        if let Some(error) = main_context.init_error {
-            return Err(error);
-        }
+        let main_unit_context = match &*main_context {
+            MainContext::InitFailed(UnitInitError) => {
+                return Err(UnitInitError);
+            }
+            MainContext::Uninitialized => None,
+            MainContext::Initialized(main_unit_context) => {
+                match main_unit_context.upgrade() {
+                    Some(context) => Some(context),
+                    None => {
+                        // The main thread already exited; fast-track all future threads to
+                        // exit as well.
+                        return Ok(Self {
+                            context_wrapper: None,
+                            context_data: std::ptr::null_mut(),
+                        });
+                    }
+                }
+            }
+        };
 
-        if main_context.finalized {
-            // The main thread already exited; fast-track all future threads to
-            // exit as well.
-            return Ok(Self {
-                ctx: std::ptr::null_mut(),
-                context_data: std::ptr::null_mut(),
-                noop_context: true,
-            });
-        }
+        if let Some(main_unit_context) = main_unit_context {
+            // Additional contexts are created from the first.
 
-        if main_context.main_unit_context.is_null() {
-            // First context ever created
             let context_data = Box::new(ContextData {
                 request_handler: None,
-                is_main_context: true,
+                unit_is_ready: false,
+            });
+
+            let context_user_data = Box::into_raw(context_data);
+
+            let ctx = unsafe {
+                nxt_unit::nxt_unit_ctx_alloc(
+                    main_unit_context.context.as_ptr(),
+                    context_user_data as *mut c_void,
+                )
+            };
+
+            let ctx = match NonNull::new(ctx) {
+                Some(ctx) => ctx,
+                None => {
+                    return Err(UnitInitError);
+                }
+            };
+
+            let context_wrapper = UnitContextWrapper {
+                parent_context: Some(main_unit_context.clone()),
+                context: ctx,
+            };
+
+            Ok(Self {
+                context_wrapper: Some(Arc::new(context_wrapper)),
+                context_data: context_user_data,
+            })
+        } else {
+            // First context ever created.
+
+            let context_data = Box::new(ContextData {
+                request_handler: None,
                 unit_is_ready: false,
             });
 
@@ -145,7 +159,7 @@ impl Unit {
 
             let ctx = unsafe {
                 let mut init: nxt_unit_init_t = std::mem::zeroed();
-                init.callbacks.request_handler = Some(app_request_handler);
+                init.callbacks.request_handler = Some(request_handler);
                 init.callbacks.ready_handler = Some(ready_handler);
 
                 init.ctx_data = context_user_data as *mut c_void;
@@ -153,25 +167,28 @@ impl Unit {
                 nxt_unit_init(&mut init)
             };
 
-            if ctx.is_null() {
-                main_context.init_error = Some(UnitInitError);
-                return Err(UnitInitError);
-            }
+            let ctx = match NonNull::new(ctx) {
+                Some(ctx) => ctx,
+                None => {
+                    *main_context = MainContext::InitFailed(UnitInitError);
+                    return Err(UnitInitError);
+                }
+            };
 
-            // Run once for the ready handler to be called.
+            // Run until the ready handler is called.
             loop {
-                let rc = unsafe { nxt_unit::nxt_unit_run_once(ctx) };
+                let rc = unsafe { nxt_unit::nxt_unit_run_once(ctx.as_ptr()) };
 
                 if rc != nxt_unit::NXT_UNIT_OK as i32 {
-                    main_context.init_error = Some(UnitInitError);
+                    *main_context = MainContext::InitFailed(UnitInitError);
                     return Err(UnitInitError);
                 }
 
                 // Check if the ready handler was called.
+                // SAFETY: This data is thread-specific, and not shared
+                // anywhere.
                 unsafe {
-                    // SAFETY: This data is thread-specific, and not shared
-                    // anywhere.
-                    let context_data = (*ctx).data as *mut ContextData;
+                    let context_data = (*ctx.as_ptr()).data as *mut ContextData;
                     let context_data = &mut *context_data;
 
                     if context_data.unit_is_ready {
@@ -180,48 +197,20 @@ impl Unit {
                 }
             }
 
-            main_context.main_unit_context = ctx;
-
-            Ok(Self {
-                ctx,
-                context_data: context_user_data,
-                noop_context: false,
-            })
-        } else {
-            // Additional contexts are created from the first
-            let context_data = Box::new(ContextData {
-                request_handler: None,
-                is_main_context: false,
-                unit_is_ready: false,
+            let context_wrapper = Arc::new(UnitContextWrapper {
+                parent_context: None,
+                context: ctx,
             });
 
-            let context_user_data = Box::into_raw(context_data);
-
-            let ctx = unsafe {
-                nxt_unit::nxt_unit_ctx_alloc(
-                    main_context.main_unit_context,
-                    context_user_data as *mut c_void,
-                )
-            };
-
-            if ctx.is_null() {
-                return Err(UnitInitError);
-            }
-
-            main_context.secondary_context_count += 1;
+            // Keep a global weak reference to this, other Unit contexts will be
+            // spawned from it.
+            *main_context = MainContext::Initialized(Arc::downgrade(&context_wrapper));
 
             Ok(Self {
-                ctx,
+                context_wrapper: Some(context_wrapper),
                 context_data: context_user_data,
-                noop_context: false,
             })
         }
-    }
-
-    fn context(&self) -> &ContextData {
-        // SAFETY: The only other thing that can access this is `.run()`, which
-        // requires `&mut self` and therefore guaranteed not to be active.
-        unsafe { &*self.context_data }
     }
 
     fn context_mut(&mut self) -> &mut ContextData {
@@ -236,7 +225,7 @@ impl Unit {
     /// [`UnitRequest`](UnitRequest) object and returns a
     /// [`UnitResult<()>`](UnitResult).
     pub fn set_request_handler(&mut self, f: impl UnitService + 'static) {
-        if self.noop_context {
+        if self.context_wrapper.is_none() {
             return;
         }
         self.context_mut().request_handler = Some(Box::new(f))
@@ -245,75 +234,49 @@ impl Unit {
     /// Enter the main event loop, handling requests until the Unit server exits
     /// or requests a restart.
     pub fn run(&mut self) {
-        if self.noop_context {
-            return;
-        }
-
-        // SAFETY: Call via FFI into Unit's main loop. It will call back into
-        // Rust code using callbacks, which must use catch_unwind to be
-        // FFI-safe.
-        unsafe {
-            nxt_unit_run(self.ctx);
+        if let Some(context_wrapper) = &self.context_wrapper {
+            // SAFETY: Call via FFI into Unit's main loop. It will call back into
+            // Rust code using callbacks, which must use catch_unwind to be
+            // FFI-safe.
+            unsafe {
+                nxt_unit_run(context_wrapper.context.as_ptr());
+            }
         }
     }
 }
 
-// An implementation of drop that waits for all secondary Unit contexts to be
-// dropped first in other threads before dropping the main thread context.
+// A wrapper over Unit's context that deallocates the context when dropped.
+struct UnitContextWrapper {
+    parent_context: Option<Arc<UnitContextWrapper>>,
+    context: NonNull<nxt_unit_ctx_t>,
+}
+
+impl Drop for UnitContextWrapper {
+    fn drop(&mut self) {
+        // The order here is important. Secondary contexts are created from a
+        // main context, which must be dropped last.
+
+        // SAFETY: This structure is only ever held in an Arc, meaning that this
+        // is the last instance of it, and it's being dropped.
+        unsafe {
+            nxt_unit_done(self.context.as_ptr());
+        }
+
+        // This is an Arc, which may or may not call the parent's drop.
+        drop(self.parent_context.take());
+    }
+}
+
 impl Drop for Unit {
     fn drop(&mut self) {
+        // SAFETY: This structure is the only owner of the box, and is being
+        // dropped, therefore not currently being shared.
         unsafe {
-            // SAFETY: This structure is the only owner of the box, and is being
-            // dropped, therefore not currently being shared.
             drop(Box::from_raw(self.context_data));
         }
 
-        if !self.context().is_main_context {
-            // Secondary context. Drop immediately, but also notify the main
-            // context in case it's waiting.
-            unsafe {
-                nxt_unit_done(self.ctx);
-            }
-            let mut main_context = main_context();
-            main_context.secondary_context_count -= 1;
-            drop(main_context);
-            let main_context_notifier = main_context_notifier();
-            main_context_notifier.notify_all();
-        } else {
-            // Main context. Wait until all secondary contexts dropped before
-            // dropping this one.
-
-            let main_context = main_context();
-
-            if main_context.secondary_context_count != 0 && std::thread::panicking() {
-                // Keep the Unit context alive, other threads might be using it.
-                // At the same time, don't wait for them, this panic needs to be
-                // shown immediately.
-                return;
-            }
-
-            let notifier_condvar = main_context_notifier();
-
-            // Temporarily release the mutex and wait until all secondary
-            // threads finish before destroying the main context.
-            let result = notifier_condvar.wait_while(main_context, |main_context| {
-                main_context.secondary_context_count != 0
-            });
-
-            // If the mutex became poisoned, best course of action is to leak
-            // and not touch anything else.
-            let mut main_context = match result {
-                Ok(main_context) => main_context,
-                Err(_) => return,
-            };
-
-            main_context.finalized = true;
-            assert_eq!(main_context.secondary_context_count, 0);
-
-            unsafe {
-                nxt_unit_done(self.ctx);
-            }
-        }
+        // Note: Everything that uses the contex must be dropped before this.
+        drop(self.context_wrapper.take());
     }
 }
 
