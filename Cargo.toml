@@ -5,7 +5,7 @@ authors = ["Andrei Vasiliu <whyte.vuhuni@gmail.com>"]
 license = "Apache-2.0"
 repository = "https://github.com/andreivasiliu/unit-rs"
 readme = "README.md"
-version = "0.2.0-alpha2"
+version = "0.2.0-alpha3"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -26,5 +26,5 @@ http = { version = "0.2.8", optional = true }
 bindgen = "0.60.1"
 
 [[example]]
-name = "http_middleware"
+name = "http_adapter"
 required-features = ["http"]

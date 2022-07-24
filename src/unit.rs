@@ -10,7 +10,7 @@ use crate::nxt_unit::{
     self, nxt_unit_ctx_t, nxt_unit_done, nxt_unit_init, nxt_unit_init_t, nxt_unit_request_done,
     nxt_unit_request_info_t, nxt_unit_response_init, nxt_unit_run,
 };
-use crate::request::UnitRequest;
+use crate::request::Request;
 
 unsafe extern "C" fn request_handler(req: *mut nxt_unit_request_info_t) {
     // SAFETY: The context data is passed as Unit context-specific user data,
@@ -26,7 +26,7 @@ unsafe extern "C" fn request_handler(req: *mut nxt_unit_request_info_t) {
     }
 
     let rc = if let Some(service) = &mut context_data.request_handler {
-        let unit_request = UnitRequest {
+        let unit_request = Request {
             nxt_request: &mut *req,
             _lifetime: Default::default(),
         };
@@ -95,15 +95,32 @@ fn main_context() -> MutexGuard<'static, MainContext> {
 ///
 /// This object wraps the `libunit` library, which talks to the Unit server over
 /// shared memory and a unix socket in order to receive data about requests.
+///
+/// This object is not [`Send`] nor [`Sync`], and cannot be sent to other
+/// threads.
+///
+/// However, multiple objects of this type may be created; additional [`Unit`]
+/// objects will automatically be linked to the first through a global mutex,
+/// and will be able to receive and process requests in other threads.
+///
+/// The first context is internally wrapped in an [`Arc`], shared among all
+/// instances [`Unit`] and will be deallocated when the last [`Unit`] object is
+/// dropped.
 pub struct Unit {
     context_wrapper: Option<Arc<UnitContextWrapper>>,
     context_data: *mut ContextData,
 }
 
 impl Unit {
-    /// Create a new Unit context and initialize the Unit application.
+    /// Create a new Unit context capable of receiving and handling requests on
+    /// the current thread.
     ///
-    /// Note: Only one Unit object may be active in a single process.
+    /// If called after a previous [`Unit`] was constructed but already received
+    /// a QUIT event from the Unit server, this will return a no-op [`Unit`]
+    /// instance whose [`Unit::run`] method will immediately return.
+    ///
+    /// If called after a previous [`Unit`] failed to initialize, this will
+    /// return the same initialization failure.
     pub fn new() -> Result<Self, UnitInitError> {
         let mut main_context = main_context();
 
@@ -236,8 +253,10 @@ impl Unit {
 
     /// Set a request handler for the Unit application.
     ///
-    /// The handler must be a function or lambda function that takes a
-    /// [`UnitRequest`](UnitRequest) object and returns a
+    /// The handler must be an object that implements the [`UnitService`] trait.
+    ///
+    /// This trait is automatically implemented for functions or lambda
+    /// functions  that take a [`Request`] object and return a
     /// [`UnitResult<()>`](UnitResult).
     pub fn set_request_handler(&mut self, f: impl UnitService + 'static) {
         if self.context_wrapper.is_none() {
@@ -246,8 +265,11 @@ impl Unit {
         self.context_data_mut().request_handler = Some(Box::new(f))
     }
 
-    /// Enter the main event loop, handling requests until the Unit server exits
-    /// or requests a restart.
+    /// Enter the main event loop, handling requests on this thread until the
+    /// Unit server exits or requests a restart.
+    ///
+    /// This may be executed in parallel with other threads that call
+    /// [`Unit::run()`]
     pub fn run(&mut self) {
         if let Some(context_wrapper) = &self.context_wrapper {
             // SAFETY: Call via FFI into Unit's main loop. It will call back into
@@ -258,6 +280,7 @@ impl Unit {
             }
 
             // Resume any panics forwarded through the C FFI.
+            // TODO: This is not yet functional, see catch_unwind above.
             if let Some(panic_payload) = self.context_data_mut().panic_payload.take() {
                 std::panic::resume_unwind(panic_payload);
             }
@@ -300,15 +323,20 @@ impl Drop for Unit {
     }
 }
 
+/// A trait that can be implemented by request handlers to be used with
+/// [`Unit::set_request_handler()`].
+///
+/// This trait is automatically implemented for functions or lambda functions
+/// that take a [`Request`] object and return a [`UnitResult<()>`](UnitResult).
 pub trait UnitService {
-    fn handle_request(&mut self, req: UnitRequest) -> UnitResult<()>;
+    fn handle_request(&mut self, req: Request) -> UnitResult<()>;
 }
 
 impl<F> UnitService for F
 where
-    F: FnMut(UnitRequest) -> UnitResult<()> + 'static,
+    F: FnMut(Request) -> UnitResult<()> + 'static,
 {
-    fn handle_request(&mut self, req: UnitRequest) -> UnitResult<()> {
+    fn handle_request(&mut self, req: Request) -> UnitResult<()> {
         self(req)
     }
 }

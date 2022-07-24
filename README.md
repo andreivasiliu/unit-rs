@@ -5,13 +5,10 @@
 
 # unit-rs
 
-`unit-rs` is a safe wrapper around the `libunit` C library from [NGINX Unit]
+`unit-rs` is a safe wrapper around the `libunit.a` C library from [NGINX Unit]
 which allows creating Unit applications in Rust.
 
 [NGINX Unit]: https://unit.nginx.org/
-
-Currently very few features are supported, but enough are available to inspect
-all aspects of a request and create a response.
 
 
 ## Example
@@ -20,7 +17,7 @@ Add `unit-rs` as a dependency:
 
 ```toml
 [dependencies]
-unit-rs = "0.1"
+unit-rs = "0.2"
 ```
 
 And add the following to `src/main.rs`:
@@ -29,13 +26,13 @@ And add the following to `src/main.rs`:
 use unit_rs::Unit;
 
 fn main() {
-    let mut unit = Unit::new();
+    let mut unit = Unit::new().unwrap();
 
     unit.set_request_handler(|req| {
         let headers = &[("Content-Type", "text/plain")];
         let body = "Hello world!\n";
-        req.create_response(headers, body)?;
-    
+        req.send_response(200, headers, body)?;
+
         Ok(())
     });
 
@@ -66,6 +63,37 @@ Once compiled, a running NGINX Unit server can be configured to use it with an
 
 See the [`examples/request_info.rs`](examples/request_info.rs) example for a
 more in-depth example, and the `deploy.sh` script for an example `curl` command.
+
+
+## Features
+
+Currently not all features are supported, but enough are available to
+inspect all aspects of a request and create a response.
+
+This library is also capable of multi-threading by creating additional
+instances of `Unit` objects.
+
+When the `http` feature enabled, the `http::HttpHandler` adapter can be
+used to write handlers using types from the [`http`](https://docs.rs/http)
+crate.
+
+
+## Missing features
+
+Support for WebSockets is not yet implemented.
+
+A callback for inspecting a request header (and potentially closing the
+request) before Unit buffers the whole request body is not yet available.
+
+There is currently no way to perform asynchronous handling of requests.
+Handlers with expensive computations or blocking IO will block the whole
+thread context.
+
+Requests with non-UTF8 paths or fields in their header will cause the request
+handler to panic.
+
+There is no way to gracefully cancel other `Unit` threads when a single thread
+panics. This may be mitigated by using multiple processes instead of threads.
 
 
 ## Building
@@ -105,10 +133,6 @@ to express:
   function
 * Storing pointers to or into a shared memory buffer in variables that outlive
   the buffer
-* Creating two responses to the same request
-* Forgetting to finalize/close the request
-* Creating/sending a shared memory buffer before previous buffers were sent or
-  dealloated
 * Sending a shared memory buffer that was already sent
 * Sending uninitialized shared memory regions
 * Forgetting to drop a shared memory buffer

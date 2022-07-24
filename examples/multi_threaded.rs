@@ -1,8 +1,11 @@
+// An example that creates multiple Unit contexts, each with their own state,
+// and some global state shared through an Arc.
+
 use std::io::Write;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 
-use unit_rs::{Unit, UnitRequest};
+use unit_rs::{Request, Unit};
 
 fn main() {
     let mut threads = Vec::new();
@@ -29,7 +32,7 @@ fn worker(thread_id: i32, global_visits: Arc<AtomicI32>) {
     // Thread state, available through a mutable, unique reference.
     let mut thread_visits = 0;
 
-    unit.set_request_handler(move |req: UnitRequest| {
+    unit.set_request_handler(move |req: Request| {
         if req.path() == "/panic" {
             // This library supports safely forwarding panics through the FFI.
             panic!("The /panic path panics!")
@@ -37,11 +40,11 @@ fn worker(thread_id: i32, global_visits: Arc<AtomicI32>) {
 
         let headers = &[("Content-Type", "text/plain")];
         let body = "Hello world!\n";
-        let mut res = req.create_response(headers, body)?;
+        req.send_response(200, headers, body)?;
         thread_visits += 1;
         global_visits.fetch_add(1, Ordering::Release);
 
-        res.send_buffer(4096, |_req, buf| {
+        req.send_chunk_with_buffer(4096, |buf| {
             writeln!(
                 buf,
                 "Thread {} visits: {} (global visits: {})",

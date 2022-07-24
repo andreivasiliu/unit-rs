@@ -1,12 +1,14 @@
-use unit_rs::{Unit, UnitRequest};
+// A simple Hello World example.
+
+use unit_rs::{Request, Unit};
 
 fn main() {
     let mut unit = Unit::new().unwrap();
 
-    unit.set_request_handler(|req: UnitRequest| {
+    unit.set_request_handler(|req: Request| {
         let headers = &[("Content-Type", "text/plain")];
         let body = "Hello world!\n";
-        req.create_response(headers, body)?;
+        req.send_response(200, headers, body)?;
 
         Ok(())
     });

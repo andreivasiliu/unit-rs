@@ -4,124 +4,83 @@ use std::panic::UnwindSafe;
 use libc::c_void;
 
 use crate::nxt_unit::{
-    self, nxt_unit_buf_send, nxt_unit_buf_t, nxt_unit_request_info_t,
-    nxt_unit_response_add_content, nxt_unit_response_add_field, nxt_unit_response_buf_alloc,
-    nxt_unit_response_init, nxt_unit_response_send,
+    self, nxt_unit_buf_send, nxt_unit_buf_t, nxt_unit_request_info_t, nxt_unit_response_buf_alloc,
 };
 
 use crate::error::{IntoUnitResult, UnitError, UnitResult};
-use crate::request::UnitRequest;
+use crate::request::Request;
 
-/// An object used to send follow-up response bytes to a request, obtained by
-/// calling a [`UnitRequest`](UnitRequest)'s
-/// [`create_response()`](UnitRequest::create_response) method. Dropping this
-/// object will end the response.
-pub struct UnitResponse<'a> {
-    pub(crate) request: UnitRequest<'a>,
+/// A buffer for constructing an initial response.
+///
+/// This object is created by calling the
+/// [`create_response()`](Request::create_response) method on a [`Request`].
+///
+/// Dropping this object will _not_ send the response; it must be manually sent
+/// with the [`Response::send()`] method.
+pub struct Response<'a> {
+    pub(crate) request: &'a Request<'a>,
 }
 
-impl<'a> std::ops::Deref for UnitResponse<'a> {
-    type Target = UnitRequest<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.request
-    }
-}
-
-impl<'a> UnitResponse<'a> {
-    /// Send another chunk of bytes for this request's response. The bytes will
-    /// be immediately sent to the client.
-    ///
-    /// This method allocates a buffer in Unit's shared memory region, and calls
-    /// a user function to fill it.
-    ///
-    /// The user function receives a `&mut &mut [u8]` slice, and the `write!`
-    /// macro can be used to advance the start position of the slice. Only the
-    /// bytes between the original start and the new start positions will be
-    /// sent, and the rest will be discarded.
-    pub fn send_buffer<T>(
-        &mut self,
-        size: usize,
-        f: impl FnOnce(&UnitRequest, &mut &mut [u8]) -> UnitResult<T>,
-    ) -> UnitResult<T> {
-        let req = self.request.nxt_request;
-
-        assert!(size <= u32::MAX as usize);
-
+impl<'a> Response<'a> {
+    pub fn add_field<N: AsRef<[u8]>, V: AsRef<[u8]>>(&self, name: N, value: V) -> UnitResult<()> {
+        // SAFETY: Unit's C API does state and buffer size checks internally.
+        // This structure is not Send nor Sync, so sharing it is fine.
         unsafe {
-            let buf = nxt_unit_response_buf_alloc(req, size as u32);
-
-            if buf.is_null() {
-                return Err(UnitError(nxt_unit::NXT_UNIT_ERROR as i32));
-            }
-
-            libc::memset((*buf).start as *mut c_void, 0, size);
-
-            let mut buf_contents = std::slice::from_raw_parts_mut((*buf).start as *mut u8, size);
-            let result = f(&self.request, &mut buf_contents)?;
-
-            // nxt_unit_req_log(req, NXT_UNIT_LOG_WARN as i32, b"Senging some extra %d".as_ptr() as *const i8, size - buf_contents.len());
-
-            (*buf).free = (*buf).free.add(size - buf_contents.len());
-
-            nxt_unit_buf_send(buf).into_unit_result()?;
-
-            Ok(result)
+            nxt_unit::nxt_unit_response_add_field(
+                self.request.nxt_request,
+                name.as_ref().as_ptr() as *const libc::c_char,
+                name.as_ref().len() as u8,
+                value.as_ref().as_ptr() as *const libc::c_char,
+                value.as_ref().len() as u32,
+            )
+            .into_unit_result()
         }
     }
 
-    pub fn send_buffer_with_writer<T>(
-        &'a mut self,
-        chunk_size: usize,
-        f: impl FnOnce(&UnitRequest, &mut BodyWriter<'a>) -> std::io::Result<T>,
-    ) -> std::io::Result<T> {
-        let mut writer = BodyWriter {
-            _lifetime: Default::default(),
-            nxt_request: self.nxt_request,
-            response_buffer: std::ptr::null_mut(),
-            chunk_cursor: std::ptr::null_mut(),
-            chunk_size,
-            bytes_remaining: 0,
-        };
-        writer.allocate_buffer()?;
-        let result = f(&self.request, &mut writer)?;
-        writer.flush()?;
-        Ok(result)
+    pub fn add_content<C: AsRef<[u8]>>(&self, content: C) -> UnitResult<()> {
+        // SAFETY: Unit's C API does state and buffer size checks internally.
+        // This structure is not Send nor Sync, so sharing it is fine.
+        unsafe {
+            nxt_unit::nxt_unit_response_add_content(
+                self.request.nxt_request,
+                content.as_ref().as_ptr() as *const c_void,
+                content.as_ref().len() as u32,
+            )
+            .into_unit_result()
+        }
+    }
+
+    pub fn realloc(&self, max_fields_count: usize, max_fields_size: usize) -> UnitResult<()> {
+        // SAFETY: Unit's C API does state and buffer size checks internally.
+        // This structure is not Send nor Sync, so sharing it is fine.
+        unsafe {
+            nxt_unit::nxt_unit_response_realloc(
+                self.request.nxt_request,
+                max_fields_count as u32,
+                max_fields_size as u32,
+            )
+            .into_unit_result()
+        }
+    }
+
+    pub fn send(&self) -> UnitResult<()> {
+        // SAFETY: Unit's C API does state and buffer size checks internally.
+        // This structure is not Send nor Sync, so sharing it is fine.
+        unsafe { nxt_unit::nxt_unit_response_send(self.request.nxt_request).into_unit_result() }
     }
 }
 
-pub(crate) unsafe fn add_response(
-    req: *mut nxt_unit_request_info_t,
-    headers: &[(impl AsRef<[u8]>, impl AsRef<[u8]>)],
-    body: impl AsRef<[u8]>,
-    response_size: usize,
-) -> UnitResult<()> {
-    nxt_unit_response_init(req, 200, headers.len() as u32, response_size as u32)
-        .into_unit_result()?;
-
-    for (header_name, header_value) in headers {
-        nxt_unit_response_add_field(
-            req,
-            header_name.as_ref().as_ptr() as *const libc::c_char,
-            header_name.as_ref().len() as u8,
-            header_value.as_ref().as_ptr() as *const libc::c_char,
-            header_value.as_ref().len() as u32,
-        )
-        .into_unit_result()?;
-    }
-
-    nxt_unit_response_add_content(
-        req,
-        body.as_ref().as_ptr() as *const libc::c_void,
-        body.as_ref().len() as u32,
-    )
-    .into_unit_result()?;
-
-    nxt_unit_response_send(req).into_unit_result()?;
-
-    Ok(())
-}
-
+/// A writer that writes to a Unit shared memory response buffer.
+///
+/// This object is created using [`Request::write_chunks()`] or
+/// [`Request::send_chunks_with_writer()`].
+///
+/// A chunk will be immediately sent to the client once the writer's memory
+/// buffer reaches `chunk_size`, or [`flush()`](std::io::Write::flush) is
+/// called on the writer, and a new shared memory buffer will be allocated.
+///
+/// The writer will also flush when dropped, but any errors that happen during
+/// a drop will panic.
 pub struct BodyWriter<'a> {
     _lifetime: std::marker::PhantomData<&'a mut ()>,
     nxt_request: *mut nxt_unit_request_info_t,
@@ -133,7 +92,20 @@ pub struct BodyWriter<'a> {
 
 impl UnwindSafe for BodyWriter<'_> {}
 
-impl BodyWriter<'_> {
+impl<'a> BodyWriter<'a> {
+    pub(crate) fn new(request: &'a Request<'a>, chunk_size: usize) -> std::io::Result<Self> {
+        let mut writer = BodyWriter {
+            _lifetime: Default::default(),
+            nxt_request: request.nxt_request,
+            response_buffer: std::ptr::null_mut(),
+            chunk_cursor: std::ptr::null_mut(),
+            chunk_size,
+            bytes_remaining: 0,
+        };
+        writer.allocate_buffer()?;
+        Ok(writer)
+    }
+
     fn allocate_buffer(&mut self) -> std::io::Result<()> {
         unsafe {
             let buf = nxt_unit_response_buf_alloc(self.nxt_request, self.chunk_size as u32);
@@ -250,9 +222,13 @@ impl Drop for BodyWriter<'_> {
                     nxt_unit::nxt_unit_buf_free(self.response_buffer);
                 }
             } else {
-                // Note: This cannot happen unless there's a bug in unit-rs, as
-                // the writer is flushed at the end of send_buffer_with_writer.
-                self.flush().expect("Error while dropping ResponseWriter");
+                if let Err(err) = self.flush() {
+                    // Prevent a double-panic, which causes an abort and hides
+                    // details on the initial panic.
+                    if !std::thread::panicking() {
+                        panic!("Error while dropping ResponseWriter: {}", err);
+                    }
+                }
             }
         }
     }
