@@ -6,7 +6,7 @@ fn main() {
     unit.set_request_handler(|req: Request<'_>| {
         let headers = &[("Content-Type", "text/plain")];
         let body = "Hello world!\n";
-        req.create_response(headers, body)?;
+        req.send_response(200, headers, body)?;
     
         Ok(())
     });

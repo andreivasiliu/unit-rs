@@ -39,7 +39,11 @@ unsafe extern "C" fn request_handler(req: *mut nxt_unit_request_info_t) {
             Ok(Ok(())) => nxt_unit::NXT_UNIT_OK as i32,
             Ok(Err(UnitError(rc))) => rc,
             Err(panic_payload) => {
-                // FIXME: Find a way to stop the loop
+                nxt_unit_request_done(req, nxt_unit::NXT_UNIT_ERROR as i32);
+
+                // FIXME: Find a way to stop the run loop
+                // Trying to implement `nxt_unit_run` manually is not possible
+                // since `nxt_unit_quit` is not exposed in the API.
                 std::panic::resume_unwind(panic_payload)
                 // context_data.panic_payload = Some(panic_payload);
                 // nxt_unit::NXT_UNIT_ERROR as i32

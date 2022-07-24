@@ -331,7 +331,7 @@ impl std::panic::UnwindSafe for BodyReader<'_> {}
 impl std::io::Read for BodyReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         // SAFETY: The target is user-provided and initialized.
-        // The BodyReader and UnitRequest are not Sync nor Send, so this is
+        // The BodyReader and Request are not Sync nor Send, so this is
         // thread-safe.
         // This function does not seem to have any sort of error reporting.
         let bytes = unsafe {
